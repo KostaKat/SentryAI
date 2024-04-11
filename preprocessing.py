@@ -65,8 +65,10 @@ def smash_n_reconstruct(input_path, coloured=True):
     return rich_texture, poor_texture
 
 if __name__ == "__main__":
-    rich_texture_img, poor_texture_img = smash_n_reconstruct(input_path="/sample_images/img1.jpeg")
-
+    img_path = "/img2.jpeg"
+    img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+    rich_texture_img, poor_texture_img = smash_n_reconstruct(input_path= img_path) 
+    
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 3, 1)
     plt.imshow(img, cmap='gray')
