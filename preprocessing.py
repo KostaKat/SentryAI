@@ -64,6 +64,27 @@ def smash_n_reconstruct(input_path, coloured=True):
 
     return rich_texture, poor_texture
 
+def preprocess_for_efficientnet(img):
+
+    img = PIL.Image.fromarray(img)
+    # Convert PIL Image to a NumPy array
+    img_array = np.array(img)
+
+    # Resize image to EfficientNet's expected size if not already
+    if img_array.shape[:2] != (224, 224):
+        img = img.resize((224, 224), PIL.Image.ANTIALIAS)
+        img_array = np.array(img)
+
+    # EfficientNet expects 3 color channels, convert if necessary
+    if img_array.ndim == 2 or img_array.shape[2] == 1:
+        img_array = cv2.cvtColor(img_array, cv2.COLOR_GRAY2RGB)
+
+    # Add a batch dimension and preprocess
+    img_array = np.expand_dims(img_array, axis=0)
+    img_array = preprocess_input(img_array)
+
+    return img_array
+
 if __name__ == "__main__":
     img_path = "/img2.jpeg"
     img = cv2.imread(img_path, cv2.IMREAD_COLOR)
