@@ -136,8 +136,8 @@ def apply_high_pass_filter(image):
     average_filtered_tensor = torch.tensor(
         average_filtered_image.transpose(2, 0, 1)).float()
 
-    # show image with high pass filter
-    plt.imshow(average_filtered_image)
+    
+
     return average_filtered_tensor
 
 
