@@ -1,3 +1,1 @@
 # SentryAI
-
-pain and suffering
