@@ -88,30 +88,7 @@ def smash_n_reconstruct(input_path, coloured=True):
     return rich_texture, poor_texture
 
 
-# Define the image processing functions
-def jpeg_compression(img, quality_range=(70, 100)):
-    if random.random() < 0.1:  # 10% probability
-        quality = random.randint(*quality_range)
-        img_bytes = io.BytesIO()
-        img.save(img_bytes, format='JPEG', quality=quality)
-        img = Image.open(img_bytes)
-    return img
 
-
-def gaussian_blur(img, sigma_range=(0, 1)):
-    if random.random() < 0.1:  # 10% probability
-        sigma = random.uniform(*sigma_range)
-        img = img.filter(ImageFilter.GaussianBlur(sigma))
-    return img
-
-
-def downsampling(img, scale_range=(0.25, 0.5)):
-    if random.random() < 0.1:  # 10% probability
-        scale = random.uniform(*scale_range)
-        smaller_img = img.resize(
-            (int(img.width * scale), int(img.height * scale)), Image.BICUBIC)
-        img = smaller_img.resize((img.width, img.height), Image.BICUBIC)
-    return img
 
 
 def apply_high_pass_filter(image):
@@ -131,7 +108,8 @@ def apply_high_pass_filter(image):
     # Stack images and compute the average
     filtered_images_np = np.stack(filtered_images, axis=0)
     average_filtered_image = np.mean(filtered_images_np, axis=0)
-
+    # how the image looks like
+    plt.imshow(average_filtered_image, cmap='gray')
     # Convert the averaged image to a tensor and fix dimensions
     average_filtered_tensor = torch.tensor(
         average_filtered_image.transpose(2, 0, 1)).float()
