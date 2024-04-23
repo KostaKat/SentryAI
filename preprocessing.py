@@ -88,38 +88,29 @@ def smash_n_reconstruct(input_path, coloured=True):
     return rich_texture, poor_texture
 
 
-
-
-
-def apply_high_pass_filter(image):
-    filtered_images = []
+def apply_high_pass_filter():
     rotated_kernels = []
 
     for idx, kernel in enumerate(kernels):
         for angle in angles[idx]:
+            # Rotate kernel
             rotated_kernel = rotate(kernel, angle, reshape=False)
-            rotated_kernel = np.round(rotated_kernel)
-            rotated_kernels.append(rotated_kernel)
+            # Ensure the kernel is in float32 format
+            rotated_kernel = np.round(rotated_kernel).astype(np.float32)
+            # Convert to tensor, shape [5, 5]
+            tensor_kernel = torch.tensor(rotated_kernel)
+            # Unsqueeze and repeat to convert to 3-channel, shape [3, 5, 5]
+            tensor_kernel = tensor_kernel.unsqueeze(0).repeat(3, 1, 1)
+            rotated_kernels.append(tensor_kernel)
 
-    for rotated_kernel in rotated_kernels:
-        filtered_image = cv2.filter2D(image, -1, rotated_kernel)
-        filtered_images.append(filtered_image)
-
-    # Stack images and compute the average
-    filtered_images_np = np.stack(filtered_images, axis=0)
-    average_filtered_image = np.mean(filtered_images_np, axis=0)
-    # how the image looks like
-    plt.imshow(average_filtered_image, cmap='gray')
-    # Convert the averaged image to a tensor and fix dimensions
-    average_filtered_tensor = torch.tensor(
-        average_filtered_image.transpose(2, 0, 1)).float()
-
-    
-
-    return average_filtered_tensor
-
+    # Stack all kernels to form a single tensor [num_kernels * num_angles, 3, 5, 5]
+    all_kernels = torch.stack(rotated_kernels)
+    print("Final stacked kernels shape:", all_kernels.shape)
+    return all_kernels
 
 # Define the image processing functions
+
+
 def jpeg_compression(img, quality_range=(70, 100)):
     if random.random() < 0.1:  # 10% probability
         quality = random.randint(*quality_range)
