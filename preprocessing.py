@@ -88,9 +88,8 @@ def smash_n_reconstruct(input_path, coloured=True):
     return rich_texture, poor_texture
 
 
-def apply_high_pass_filter():
-    rotated_kernels = []
-
+def apply_high_pass_filter(tensor_image):
+    image = tensor_image
     for idx, kernel in enumerate(kernels):
         for angle in angles[idx]:
             # Rotate kernel
@@ -110,7 +109,37 @@ def apply_high_pass_filter():
 
 # Define the image processing functions
 
+import cv2
+import numpy as np
+from scipy.ndimage import rotate
+from kernels import *
+# Read the image
+image = cv2.imread('./sample_images/fake/0_adm_0.PNG', cv2.IMREAD_GRAYSCALE)
+filtered_images= []
 
+rotated_kernels = []
+
+for idx, kernel in enumerate(kernels):
+    for angle in angles[idx]:
+        # Rotate the kernel at the specified angle
+        rotated_kernel = rotate(kernel, angle, reshape=False)
+        # Round the values to avoid floating point precision issues
+        rotated_kernels.append(rotated_kernel)
+        # Add the rotated kernel to the list
+        rotated_kernel = np.round(rotated_kernel)
+
+for rotated_kernel in rotated_kernels:
+    # Apply convolution
+    filtered_images.append( cv2.filter2D(image, -1, rotated_kernel))
+
+print(len(rotated_kernels))
+
+# Display the original and filtered images
+cv2.imshow('Original Image', image)
+for idx, filtered_image in enumerate(filtered_images):
+    cv2.imshow('Filtered Image', filtered_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 def jpeg_compression(img, quality_range=(70, 100)):
     if random.random() < 0.1:  # 10% probability
         quality = random.randint(*quality_range)
