@@ -12,46 +12,79 @@ from scipy.ndimage import rotate
 from kernels import *
 
 
-def img_to_patches(img, patch_size=32):
-    # Ensure the image dimensions are multiples of patch_size or larger
-    width, height = img.size
-    # Calculate the number of patches that can fit horizontally and vertically
-    num_patches_x = width // patch_size
-    num_patches_y = height // patch_size
+def img_to_patches(img) -> tuple:
 
-    patches = [np.asarray(img.crop((j * patch_size, i * patch_size, 
-                                    (j + 1) * patch_size, (i + 1) * patch_size))) 
-               for i in range(num_patches_y) 
-               for j in range(num_patches_x)]
+    if (img.size != (256, 256)):
+        img = img.resize((256, 256))
+    patch_size = 32
+    grayscale_patches = []
+    color_patches = []
+    for i in range(0, img.height, patch_size):
+        for j in range(0, img.width, patch_size):
+            box = (j, i, j + patch_size, i + patch_size)
+            patch = np.asarray(img.crop(box))
+            grayscale_patch = cv2.cvtColor(patch, cv2.COLOR_RGB2GRAY)
+            grayscale_patches.append(grayscale_patch.astype(np.int32))
+            color_patches.append(patch)
+    return grayscale_patches, color_patches
 
-    # Convert patches to grayscale
-    grayscale_patches = [cv2.cvtColor(patch, cv2.COLOR_RGB2GRAY).astype(np.int32) for patch in patches]
 
-    return grayscale_patches, patches
+def get_l1(v):
+    return np.sum(np.abs(v[:, :-1] - v[:, 1:]))
+
+
+def get_l2(v):
+    return np.sum(np.abs(v[:-1, :] - v[1:, :]))
+
+
+def get_l3l4(v):
+    l3 = np.sum(np.abs(v[:-1, :-1] - v[1:, 1:]))
+    l4 = np.sum(np.abs(v[1:, :-1] - v[:-1, 1:]))
+    return l3 + l4
+
 
 def get_pixel_var_degree_for_patch(patch):
-    diffs = np.abs(np.diff(patch, axis=0)) + np.abs(np.diff(patch, axis=1))
-    diag_diffs = np.abs(np.diff(patch[:-1, :-1], axis=0) - np.diff(patch[1:, 1:], axis=0))
-    return np.sum(diffs) + np.sum(diag_diffs)
+    l1 = get_l1(patch)
+    l2 = get_l2(patch)
+    l3l4 = get_l3l4(patch)
+    return l1 + l2 + l3l4
+
 
 def extract_rich_and_poor_textures(variance_values, patches):
     threshold = np.mean(variance_values)
-    rich_patches = [patch for i, patch in enumerate(patches) if variance_values[i] >= threshold]
-    poor_patches = [patch for i, patch in enumerate(patches) if variance_values[i] < threshold]
+    rich_patches = [patch for i, patch in enumerate(
+        patches) if variance_values[i] >= threshold]
+    poor_patches = [patch for i, patch in enumerate(
+        patches) if variance_values[i] < threshold]
     return rich_patches, poor_patches
 
-def get_complete_image(patches, grid_size=(8, 8), patch_size=32):
-    random.shuffle(patches)
-    patches = patches * (grid_size[0] * grid_size[1] // len(patches) + 1)
-    grid = np.array(patches[:grid_size[0] * grid_size[1]]).reshape(grid_size + (patch_size, patch_size, -1))
-    return np.block([[row] for row in grid])
 
-def smash_n_reconstruct(img, coloured=True):
-    grayscale_patches, color_patches = img_to_patches(img)
-    pixel_var_degree = [get_pixel_var_degree_for_patch(patch) for patch in grayscale_patches]
-    rich_patches, poor_patches = extract_rich_and_poor_textures(pixel_var_degree, color_patches if coloured else grayscale_patches)
-    rich_texture = get_complete_image(rich_patches)
-    poor_texture = get_complete_image(poor_patches)
+def get_complete_image(patches, coloured=True):
+    random.shuffle(patches)
+    while len(patches) < 64:
+        patches += patches[:64 - len(patches)]
+    grid = np.array(patches).reshape((8, 8, 32, 32, 3)) if coloured else np.array(
+        patches).reshape((8, 8, 32, 32))
+    rows = [np.concatenate(row_patches, axis=1) for row_patches in grid]
+    complete_image = np.concatenate(rows, axis=0)
+    return complete_image
+
+
+def smash_n_reconstruct(input_path, coloured=True):
+    grayscale_patches, color_patches = img_to_patches(input_path)
+    pixel_var_degree = [get_pixel_var_degree_for_patch(
+        patch) for patch in grayscale_patches]
+
+    if coloured:
+        rich_patches, poor_patches = extract_rich_and_poor_textures(
+            pixel_var_degree, color_patches)
+    else:
+        rich_patches, poor_patches = extract_rich_and_poor_textures(
+            pixel_var_degree, grayscale_patches)
+
+    rich_texture = get_complete_image(rich_patches, coloured)
+    poor_texture = get_complete_image(poor_patches, coloured)
+
     return rich_texture, poor_texture
 
 
@@ -66,12 +99,11 @@ def apply_high_pass_filter():
             rotated_kernel = np.round(rotated_kernel).astype(np.float32)
             # Convert to tensor, shape [5, 5]
             tensor_kernel = torch.tensor(rotated_kernel)
-            
             # Unsqueeze and repeat to convert to 3-channel, shape [3, 5, 5]
             tensor_kernel = tensor_kernel.unsqueeze(0).repeat(3, 1, 1)
             rotated_kernels.append(tensor_kernel)
 
-
+    # Stack all kernels to form a single tensor [num_kernels * num_angles, 3, 5, 5]
     all_kernels = torch.stack(rotated_kernels)
 
     return all_kernels
