@@ -26,7 +26,7 @@ def run_notebook(path):
     with open(path) as f:
         nb = nbformat.read(f, as_version=4)
     
-    ep = MyExecutePreprocessor(timeout=600, kernel_name='python3')
+    ep = MyExecutePreprocessor( kernel_name='python3')
     
     try:
         # Process the notebook
