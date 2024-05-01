@@ -1,9 +1,4 @@
 from collections import defaultdict
-from utils import apply_high_pass_filter
-from utils import smash_n_reconstruct
-kernels = apply_high_pass_filter()
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = ImageClassificationModel(kernels).to(device)
 
 def test(model, test_loader, device):
     # Load the best model

@@ -21,7 +21,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import cv2
-
+import pandas as pd
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score
+import seaborn as sns  
 import numpy as np
 from collections import defaultdict
 
@@ -45,7 +47,7 @@ import my_utils as ut
 from transformers import Swinv2ForImageClassification, SwinConfig
 from torch.optim import AdamW
 from torchvision import transforms, datasets
-
+import math
 
 class DatasetAI(Dataset):
     def __init__(self, root_dir, transform=None, split='train'):
@@ -164,7 +166,7 @@ class CNNBlock(nn.Module):
        x = self.htanh(x)
        return x
   
-def train_and_validate(model, train_loader, valid_loader, optimizer, device, num_epochs,best_model_path):
+def train_and_validate(model, train_loader, valid_loader, optimizer, device, num_epochs, best_model_path):
     criterion = nn.CrossEntropyLoss()
     try:
         checkpoint = torch.load(best_model_path)
@@ -231,43 +233,138 @@ def train_and_validate(model, train_loader, valid_loader, optimizer, device, num
                         'best_val_accuracy': best_val_accuracy},
                        best_model_path)
             print(f"Saved new best model with accuracy: {best_val_accuracy:.4f}")
-def test(model, test_loader, device):
-    # Load the best model
-    checkpoint = torch.load("/home/kosta/code/School/SentryAI/pth/best_model_newPatching.pth")
-    model.load_state_dict(checkpoint['model_state'])
-    
+def test(model, test_loader, device, weights_path,  name_model=None):
+    try:
+        # Load the best model
+        checkpoint = torch.load(weights_path, map_location=device)
+        model.load_state_dict(checkpoint['model_state'])
+    except Exception as e:
+        print(f"Error loading model weights: {e}")
+        return
+
     model.eval()
-    total_test, correct_test = 0, 0
-    test_accuracy_per_model = defaultdict(lambda: {'correct': 0, 'total': 0})
+    seen_models = ["ADM","BigGAN","glide", "Midjourney","stable_diffusion_v_1_4","stable_diffusion_v_1_5", "VQDM","wukong"]
+    all_labels = []
+    all_predictions = []
+    per_model_labels = {}
+    per_model_predictions = {}
+    seen_labels = []
+    seen_predictions = []
+    unseen_labels = []
+    unseen_predictions = []
 
     with torch.no_grad():
         for batch in test_loader:
-            rich, poor, labels, model_names = batch  # Assuming you have model_names
+            rich, poor, labels, model_names = batch
             rich = rich.to(device)
             poor = poor.to(device)
             labels = labels.to(device)
-
+            
             outputs = model(rich, poor)
+           
             _, predicted = torch.max(outputs, 1)
-            total_test += labels.size(0)
-            correct_test += (predicted == labels).sum().item()
+            
+            all_labels.extend(labels.cpu().numpy())
+            all_predictions.extend(predicted.cpu().numpy())
 
-            # Collect stats per model just like validation phase
-            for model_name, pred, true in zip(model_names, predicted, labels):
-                test_accuracy_per_model[model_name]['total'] += 1
-                if pred == true:
-                    test_accuracy_per_model[model_name]['correct'] += 1
+            for model_name, label, prediction in zip(model_names, labels, predicted):
+                if model_name in seen_models:
+                    seen_labels.append(label.item())
+                    seen_predictions.append(prediction.item())
+                else:
+                    unseen_labels.append(label.item())
+                    unseen_predictions.append(prediction.item())
 
-    test_accuracy = correct_test / total_test
-    print(f'Test Accuracy: {test_accuracy:.4f}')
+                if model_name not in per_model_labels:
+                    per_model_labels[model_name] = []
+                    per_model_predictions[model_name] = []
+                per_model_labels[model_name].append(label.item())
+                per_model_predictions[model_name].append(prediction.item())
+        
+                
 
-    # Print per model accuracy
-    print("-------------------------------------------------------------------------")
-    print("Test Accuracy per model:")
-    for model_name, stats in test_accuracy_per_model.items():
-        model_accuracy = stats['correct'] / stats['total']
-        print(f"Test Accuracy for model {model_name}: {model_accuracy:.4f}")
-def split_datasets(train_dataset, val_test_dataset, train_size, val_size, test_size, seed_train=42, seed_val=42, seed_test=None):
+    display_confusion_matrices(per_model_labels, per_model_predictions, np.array(all_labels), np.array(all_predictions), np.array(seen_labels), np.array(seen_predictions), np.array(unseen_labels), np.array(unseen_predictions), name_model)
+
+def display_confusion_matrices(per_model_labels, per_model_predictions, all_labels, all_predictions, seen_labels, seen_predictions, unseen_labels, unseen_predictions, name_model):
+    metrics_data = []
+    for model_name, labels in per_model_labels.items():
+        predictions = per_model_predictions[model_name]
+        cm = confusion_matrix(labels, predictions)
+        TN = cm[0, 0] if cm.shape[0] > 1 else 0
+        FP = cm[0, 1] if cm.shape[0] > 1 else 0
+        accuracy = accuracy_score(labels, predictions)
+        precision = precision_score(labels, predictions, average='macro', zero_division=0)
+        metrics_data.append({
+            "Model": model_name,
+            "Accuracy": round(accuracy, 4),
+            "Precision": round(precision, 4),
+            "TN (Only AI Generated Image)": TN, 
+            "FP (Only AI Generated Image)": FP,  
+        })
+
+    metrics_df = pd.DataFrame(metrics_data)
+    
+    # Creating a larger figure to accommodate both plots and table
+    fig, axs = plt.subplots(2, 3, figsize=(24, 12), gridspec_kw={'height_ratios': [3, 1]})
+    fig.suptitle(f'{name_model} Confusion Matrices and Metrics', fontsize=16)
+    for ax in axs[0, :]:
+        ax.set_aspect('equal')  # Ensures each cell of the heatmap is squar
+    # Plot confusion matrices
+    plot_confusion_matrix(axs[0, 0], all_labels, all_predictions, 'Overall')
+    plot_confusion_matrix(axs[0, 1], seen_labels, seen_predictions, 'Seen Models')
+    plot_confusion_matrix(axs[0, 2], unseen_labels, unseen_predictions, 'Unseen Models')
+     # Adjust spacing between subplots
+    plt.subplots_adjust(wspace=.1, hspace=.1)
+
+    # Hide axes for the lower row used for the table
+    for ax in axs[1, :]:
+        ax.axis('off')
+
+    # Placing the table in the middle lower grid and adding a title
+    axs[1, 1].axis('on')
+    axs[1, 1].axis('tight')
+    axs[1, 1].axis('off')
+    the_table = axs[1, 1].table(cellText=metrics_df.values, colLabels=metrics_df.columns, cellLoc='center', loc='center')
+    axs[1, 1].set_title('Metrics Per Model', pad=10, fontsize=14)  # Adjust 'pad' as needed
+    the_table.auto_set_font_size(False)
+    the_table.set_fontsize(14)
+    the_table.auto_set_column_width(list(range(len(metrics_df.columns))))  # Adjust column widths
+    
+    # Make column headers bold
+    for (i, key) in enumerate(metrics_df.columns):
+        the_table[(0, i)].get_text().set_weight('bold')
+        the_table[(0, i)].set_facecolor('#D3D3D3')  # You can change the color
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+    plt.save(f'/home/kosta/code/School/SentryAI/pth/Metrics{name_model}_confusion_matrix.png')
+def plot_confusion_matrix(ax, labels, predictions, title):
+    cm = confusion_matrix(labels, predictions)
+    sns.heatmap(cm, annot=False, fmt='d', cmap='Purples', ax=ax, cbar= False)
+    ax.set_title(title)
+    ax.set_xlabel('Predicted')
+    ax.set_ylabel('Actual')
+
+    # Calculate cell text colors based on background color
+    threshold = cm.max() / 2.
+
+    # Place text in the center of each cell
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            ax.text(j + 0.5, i + 0.5, f"{get_label(i, j, labels, predictions)}\n({cm[i, j]})", 
+                    ha="center", va="center", color="white" if cm[i, j] > threshold else "black", fontweight="bold")
+
+    accuracy = accuracy_score(labels, predictions)
+    precision = precision_score(labels, predictions, average='macro', zero_division=0)
+    ax.set_xlabel(f'Predicted\n\nAccuracy: {accuracy:.4f}, Precision: {precision:.4f}')
+
+def get_label(i, j, labels, predictions):
+    if i == j:
+        return 'TP' if i == 1 else 'TN'
+    else:
+        return 'FP' if i < j else 'FN'
+
+def split_datasets(train_dataset, val_test_dataset, train_size, val_size, test_size, seed_train=42, seed_val=42, seed_test=42):
     rngTrain = np.random.default_rng(seed_train)
     rngVal = np.random.default_rng(seed_val)
     rngTest = np.random.default_rng(seed_test)  # seed_test can be None for true randomness each time
